@@ -10,11 +10,11 @@ dotenv.config();
 
 const app = express();
 
-app.use(cors(
-  {
-    origin: "https://www.nummix.az/",
-  }
-));
+app.use(cors({
+  origin: 'https://nummix.az',
+  methods: ['GET','POST','PUT','DELETE'],
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
