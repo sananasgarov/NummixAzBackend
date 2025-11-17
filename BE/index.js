@@ -11,8 +11,13 @@ dotenv.config();
 const app = express();
 
 app.use(cors({
-  origin: 'https://nummix.az',
-  methods: ['GET','POST','PUT','DELETE'],
+  origin: (origin, callback) => {
+    if (!origin || origin.endsWith("nummix.az")) {
+      callback(null, true);
+    } else {
+      callback(new Error("CORS blocked"));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
