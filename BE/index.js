@@ -222,19 +222,17 @@ app.delete("/team/:id", authenticateToken, async (req, res) => {
 
 // ======================= BLOG =======================
 const blogSchema = new mongoose.Schema({
-  title: String,
+   title: String,
   category: String,
-  date: String,
-  readTime: String,
   excerpt: String,
   coverImage: String,
+  date: String,
+  readTime: String,
   author: {
     name: String,
-    initials: String,
+    initials: String
   },
-  tags: [String],
 
-  
   question1: String,
   answer1: String,
   question2: String,
@@ -245,7 +243,17 @@ const blogSchema = new mongoose.Schema({
   answer4: String,
   question5: String,
   answer5: String,
-   result:String,
+  question6: String,
+  answer6: String,
+  question7: String,
+  answer7: String,
+  question8: String,
+  answer8: String,
+  question9: String,
+  answer9: String,
+
+
+  result: String
 }, { timestamps: true });
 
 
@@ -302,9 +310,7 @@ app.delete("/blogs/:id", authenticateToken, async (req, res) => {
 
 
 
-// ======================= SERVER =======================
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(` Server ${PORT} portunda işləyir`));
+
 
 
 
@@ -536,6 +542,8 @@ app.delete("/api/admins/:id", async (req, res) => {
 });
 
 
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server ${PORT} portunda işləyir`));
 
 
 
