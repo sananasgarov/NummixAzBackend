@@ -123,6 +123,7 @@ app.get("/api/auth/verify", authenticateToken, async (req, res) => {
   }
 });
 
+// ======================= EMAIL CONFIGURATION =======================
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -131,43 +132,81 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// ======================= CONTACT =======================
+// Transporter connection verification
+transporter.verify((error, success) => {
+  if (error) {
+    console.log("Email server connection error:", error);
+  } else {
+    console.log("Email server is ready to take our messages");
+  }
+});
+
+// ======================= CONTACT API =======================
 app.post("/api/contact", async (req, res) => {
   try {
     const { fullName, email, companyName, message } = req.body;
 
+    // Validation
     if (!fullName || !email || !message) {
-      return res.status(400).json({ success: false, message: "Bütün sahələri doldurun" });
+      return res.status(400).json({ 
+        success: false, 
+        message: "Zəhmət olmasa bütün vacib sahələri doldurun" 
+      });
     }
 
+    // Admin notification email
     const mailOptions = {
       from: process.env.EMAIL_USER,
-      to: "nummixaz@gmail.com",
-      subject: `Yeni müraciət: ${fullName}`,
+      to: "nummixaz@gmail.com", // Admin email
+      subject: `Nummix - Yeni Müraciət: ${fullName}`,
       html: `
-        <div>
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 5px;">
+          <h2 style="color: #333;">Yeni Müştəri Müraciəti</h2>
+          <hr style="border: 0; border-top: 1px solid #eee;" />
           <p><strong>Ad Soyad:</strong> ${fullName}</p>
-          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Email:</strong> <a href="mailto:${email}">${email}</a></p>
           ${companyName ? `<p><strong>Şirkət:</strong> ${companyName}</p>` : ""}
-          <p><strong>Mesaj:</strong> ${message}</p>
+          <p><strong>Mesaj:</strong></p>
+          <div style="background-color: #f9f9f9; padding: 10px; border-radius: 4px;">
+            ${message}
+          </div>
         </div>
       `,
     };
 
+    // Auto-reply to user
     const autoReplyOptions = {
       from: process.env.EMAIL_USER,
       to: email,
-      subject: "Müraciətiniz qəbul edildi - Nummix",
-      html: `<p>Hörmətli ${fullName}, müraciətiniz üçün təşəkkür edirik!</p>`,
+      subject: "Müraciətiniz Qəbul Edildi - Nummix",
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2 style="color: #4A90E2;">Hörmətli ${fullName},</h2>
+          <p>Müraciətiniz bizə çatdı. Sizinlə ən qısa zamanda əlaqə saxlayacağıq.</p>
+          <p>Təşəkkür edirik!</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+          <p style="color: #888; font-size: 12px;">Bu avtomatik mesajdır, xahiş edirik cavab yazmayın.</p>
+        </div>
+      `,
     };
 
-    await transporter.sendMail(mailOptions);
-    await transporter.sendMail(autoReplyOptions);
+    // Send emails in parallel
+    await Promise.all([
+      transporter.sendMail(mailOptions),
+      transporter.sendMail(autoReplyOptions)
+    ]);
 
-    res.status(200).json({ success: true, message: "Mesajınız göndərildi" });
+    res.status(200).json({ 
+      success: true, 
+      message: "Mesajınız uğurla göndərildi" 
+    });
+
   } catch (error) {
-    console.error("Email error:", error);
-    res.status(500).json({ success: false, message: "Email göndərilmədi", error: error.message });
+    console.error("Contact form error:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Sistem xətası baş verdi. Zəhmət olmasa yenidən cəhd edin." 
+    });
   }
 });
 
@@ -308,13 +347,6 @@ app.delete("/blogs/:id", authenticateToken, async (req, res) => {
   }
 });
 
-
-
-
-
-
-
-
 // ======================= PASSWORD RESET SCHEMA =======================
 const passwordResetSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'Admin' },
@@ -331,46 +363,50 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ success: false, message: "Email daxil edin" });
+      return res.status(400).json({ success: false, message: "Zəhmət olmasa email daxil edin" });
     }
 
-    
     const admin = await Admin.findOne({ email });
-    if (!admin) {
     
+    // Security: Always return success even if email not found to prevent enumeration
+    if (!admin) {
       return res.status(200).json({ 
         success: true, 
-        message: "Əgər bu email qeydiyyatdan keçibsə, sıfırlama kodu göndəriləcək" 
+        message: "Email qeydiyyatlıdırsa, təsdiq kodu göndəriləcək" 
       });
     }
 
-    
+    // Generate 6 digit code
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Clear old codes
     await PasswordReset.deleteMany({ userId: admin._id, used: false });
 
-
+    // Save new code
     await PasswordReset.create({
       userId: admin._id,
       resetCode: resetCode,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000), 
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
       used: false
     });
 
-  
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: email,
       subject: "Şifrə Sıfırlama Kodu - Admin Panel",
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #667eea;">Şifrə Sıfırlama</h2>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+          <h2 style="color: #4F46E5; text-align: center;">Şifrə Sıfırlama Tələbi</h2>
           <p>Hörmətli ${admin.name},</p>
-          <p>Şifrənizi sıfırlamaq üçün aşağıdaki kodu istifadə edin:</p>
-          <div style="background-color: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
-            ${resetCode}
+          <p>Hesabınız üçün şifrə sıfırlama tələbi aldıq. Aşağıdakı kodu istifadə edərək şifrənizi yeniləyə bilərsiniz:</p>
+          
+          <div style="background-color: #f3f4f6; padding: 15px; text-align: center; border-radius: 6px; margin: 25px 0;">
+            <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #111827;">${resetCode}</span>
           </div>
-          <p style="color: #666;">Bu kod 10 dəqiqə ərzində etibarlıdır.</p>
-          <p style="color: #999; font-size: 12px;">Əgər siz bu əməliyyatı tələb etməmisinizsə, bu emaili nəzərə almayın.</p>
+
+          <p style="color: #666; font-size: 14px;">⚠️ Bu kod <strong>10 dəqiqə</strong> ərzində etibarlıdır.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+          <p style="color: #999; font-size: 12px; text-align: center;">Əgər bu əməliyyatı siz etməmisinizsə, bu mesajı lütfən ignor edin.</p>
         </div>
       `,
     };
@@ -379,14 +415,14 @@ app.post("/api/auth/forgot-password", async (req, res) => {
 
     res.status(200).json({ 
       success: true, 
-      message: "Sıfırlama kodu emailinizə göndərildi" 
+      message: "Təsdiq kodu email ünvanınıza göndərildi" 
     });
 
   } catch (error) {
     console.error("Forgot password error:", error);
     res.status(500).json({ 
       success: false, 
-      message: "Xəta baş verdi. Zəhmət olmasa yenidən cəhd edin" 
+      message: "Xəta baş verdi. Zəhmət olmasa bir az sonra yenidən cəhd edin" 
     });
   }
 });
@@ -400,13 +436,11 @@ app.post("/api/auth/verify-reset-code", async (req, res) => {
       return res.status(400).json({ success: false, message: "Email və kod daxil edin" });
     }
 
-    
     const admin = await Admin.findOne({ email });
     if (!admin) {
       return res.status(404).json({ success: false, message: "İstifadəçi tapılmadı" });
     }
 
-    
     const resetRequest = await PasswordReset.findOne({
       userId: admin._id,
       resetCode: code,
@@ -417,7 +451,7 @@ app.post("/api/auth/verify-reset-code", async (req, res) => {
     if (!resetRequest) {
       return res.status(400).json({ 
         success: false, 
-        message: "Kod yanlışdır və ya vaxtı keçib" 
+        message: "Kod yanlışdır və ya müddəti bitib" 
       });
     }
 
@@ -445,19 +479,11 @@ app.post("/api/auth/reset-password", async (req, res) => {
       });
     }
 
- 
+    // Password validation - Minimum 6 characters
     if (newPassword.length < 6) {
       return res.status(400).json({ 
         success: false, 
         message: "Şifrə ən azı 6 simvol olmalıdır" 
-      });
-    }
-
-    const strongPasswordRegex = /^(?=.*[A-Z])(?=.*\d).{6,}$/;
-    if (!strongPasswordRegex.test(newPassword)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Şifrə ən azı bir böyük hərf və bir rəqəm olmalıdır" 
       });
     }
 
@@ -466,6 +492,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
       return res.status(404).json({ success: false, message: "İstifadəçi tapılmadı" });
     }
 
+    // Verify code validity
     const resetRequest = await PasswordReset.findOne({
       userId: admin._id,
       resetCode: code,
@@ -476,27 +503,33 @@ app.post("/api/auth/reset-password", async (req, res) => {
     if (!resetRequest) {
       return res.status(400).json({ 
         success: false, 
-        message: "Kod yanlışdır və ya vaxtı keçib" 
+        message: "Kod yanlışdır və ya müddəti bitib" 
       });
     }
 
+    // Update password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     admin.password = hashedPassword;
     await admin.save();
 
+    // Mark code as used
     resetRequest.used = true;
     await resetRequest.save();
 
+    // Send confirmation email
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: email,
-      subject: "Şifrəniz Dəyişdirildi - Admin Panel",
+      subject: "Şifrəniz Uğurla Dəyişdirildi",
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #667eea;">Şifrə Dəyişdirildi</h2>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+          <h2 style="color: #10B981; text-align: center;">Şifrə Yeniləndi</h2>
           <p>Hörmətli ${admin.name},</p>
-          <p>Şifrəniz uğurla dəyişdirildi.</p>
-          <p style="color: #999; font-size: 12px;">Əgər bu əməliyyatı siz həyata keçirməmisinizsə, dərhal bizimlə əlaqə saxlayın.</p>
+          <p>Sizin hesabınızın şifrəsi uğurla dəyişdirildi. Artıq yeni şifrənizlə giriş edə bilərsiniz.</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <p style="background-color: #ECFDF5; color: #059669; padding: 10px; display: inline-block; border-radius: 4px;">Əməliyyat uğurla tamamlandı</p>
+          </div>
+          <p style="color: #999; font-size: 12px; text-align: center;">Əgər bu əməliyyatı siz etməmisinizsə, dərhal bizimlə əlaqə saxlayın.</p>
         </div>
       `,
     };
@@ -505,7 +538,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
 
     res.status(200).json({ 
       success: true, 
-      message: "Şifrəniz uğurla dəyişdirildi" 
+      message: "Şifrəniz uğurla yeniləndi" 
     });
 
   } catch (error) {
@@ -516,6 +549,8 @@ app.post("/api/auth/reset-password", async (req, res) => {
     });
   }
 });
+
+
 
 app.get("/api/admins", async (req, res) => {
   try {
