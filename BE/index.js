@@ -142,7 +142,7 @@ app.post("/api/contact", async (req, res) => {
 
     const mailOptions = {
       from: process.env.EMAIL_USER,
-      to: "nummixaz@gmail.com",
+      to: "info@nummix.az",
       subject: `Yeni müraciət: ${fullName}`,
       html: `
         <div>
