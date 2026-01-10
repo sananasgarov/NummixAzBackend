@@ -125,10 +125,12 @@ app.get("/api/auth/verify", authenticateToken, async (req, res) => {
 
 // ======================= EMAIL CONFIGURATION =======================
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.resend.com",
+  secure: true,
+  port: 465,
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    user: "resend",
+    pass: process.env.RESEND_API_KEY,
   },
 });
 
@@ -156,7 +158,7 @@ app.post("/api/contact", async (req, res) => {
 
     // Admin notification email
     const mailOptions = {
-      from: process.env.EMAIL_USER,
+      from: process.env.EMAIL_FROM,
       to: "nummixaz@gmail.com", // Admin email
       subject: `Nummix - Yeni Müraciət: ${fullName}`,
       html: `
@@ -176,7 +178,7 @@ app.post("/api/contact", async (req, res) => {
 
     // Auto-reply to user
     const autoReplyOptions = {
-      from: process.env.EMAIL_USER,
+      from: process.env.EMAIL_FROM,
       to: email,
       subject: "Müraciətiniz Qəbul Edildi - Nummix",
       html: `
@@ -577,7 +579,7 @@ app.delete("/api/admins/:id", async (req, res) => {
 });
 
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT;
 app.listen(PORT, () => console.log(`Server ${PORT} portunda işləyir`));
 
 
