@@ -126,8 +126,8 @@ app.get("/api/auth/verify", authenticateToken, async (req, res) => {
 // ======================= EMAIL CONFIGURATION =======================
 const transporter = nodemailer.createTransport({
   host: "smtp.resend.com",
-  secure: true,
-  port: 465,
+  port: 587,
+  secure: false,
   auth: {
     user: "resend",
     pass: process.env.RESEND_API_KEY,
@@ -158,7 +158,7 @@ app.post("/api/contact", async (req, res) => {
 
     // Admin notification email
     const mailOptions = {
-      from: process.env.EMAIL_FROM,
+      from: "onboarding@resend.dev",
       to: "nummixaz@gmail.com", // Admin email
       subject: `Nummix - Yeni Müraciət: ${fullName}`,
       html: `
@@ -178,7 +178,7 @@ app.post("/api/contact", async (req, res) => {
 
     // Auto-reply to user
     const autoReplyOptions = {
-      from: process.env.EMAIL_FROM,
+      from: "onboarding@resend.dev",
       to: email,
       subject: "Müraciətiniz Qəbul Edildi - Nummix",
       html: `
