@@ -129,7 +129,7 @@ const transporter = nodemailer.createTransport({
   port: 587,
   secure: false,
   auth: {
-    user: "resend",
+    user: "no-reply@nummix.az",
     pass: process.env.RESEND_API_KEY,
   },
 });
@@ -158,7 +158,7 @@ app.post("/api/contact", async (req, res) => {
 
     // Admin notification email
     const mailOptions = {
-      from: "onboarding@resend.dev",
+      from: "no-reply@nummix.az",
       to: "nummixaz@gmail.com", // Admin email
       subject: `Nummix - Yeni Müraciət: ${fullName}`,
       html: `
@@ -178,7 +178,7 @@ app.post("/api/contact", async (req, res) => {
 
     // Auto-reply to user
     const autoReplyOptions = {
-      from: "onboarding@resend.dev",
+      from: "no-reply@nummix.az",
       to: email,
       subject: "Müraciətiniz Qəbul Edildi - Nummix",
       html: `
@@ -393,7 +393,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     });
 
     const mailOptions = {
-      from: process.env.EMAIL_USER,
+      from: "no-reply@nummix.az",
       to: email,
       subject: "Şifrə Sıfırlama Kodu - Admin Panel",
       html: `
@@ -520,7 +520,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
 
     // Send confirmation email
     const mailOptions = {
-      from: process.env.EMAIL_USER,
+      from: "no-reply@nummix.az",
       to: email,
       subject: "Şifrəniz Uğurla Dəyişdirildi",
       html: `
