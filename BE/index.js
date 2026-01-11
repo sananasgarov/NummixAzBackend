@@ -129,7 +129,7 @@ const transporter = nodemailer.createTransport({
   port: 587,
   secure: false,
   auth: {
-    user: "no-reply@nummix.az",
+    user: process.env.EMAIL_FROM,
     pass: process.env.RESEND_API_KEY,
   },
 });
