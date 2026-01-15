@@ -15,26 +15,27 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 mongoose
-  .connect("mongodb+srv://LeylaRustamova:LeylaRustamova@cluster0.jhalvrd.mongodb.net/")
+  .connect(process.env.MONGO_URI)
   .then(() => console.log(" MongoDB connected"))
   .catch(() => console.log(" MongoDB connection failed"));
 
-const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key_here_change_in_production";
+const JWT_SECRET =
+  process.env.JWT_SECRET || "your_secret_key_here_change_in_production";
 
 // ======================= ADMIN USER SCHEMA =======================
 const adminSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
 });
 
 const Admin = mongoose.model("Admin", adminSchema);
 
 // ======================= AUTH MIDDLEWARE =======================
 const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
 
   if (!token) {
     return res.status(401).json({ success: false, message: "Token tapılmadı" });
@@ -42,7 +43,9 @@ const authenticateToken = (req, res, next) => {
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      return res.status(403).json({ success: false, message: "Token etibarsızdır" });
+      return res
+        .status(403)
+        .json({ success: false, message: "Token etibarsızdır" });
     }
     req.user = user;
     next();
@@ -53,7 +56,7 @@ const authenticateToken = (req, res, next) => {
 app.post("/api/auth/register", (req, res) => {
   return res.status(403).json({
     success: false,
-    message: "Yeni admin qeydiyyatı bağlıdır. Əlavə admin yaradıla bilməz."
+    message: "Yeni admin qeydiyyatı bağlıdır. Əlavə admin yaradıla bilməz.",
   });
 });
 
@@ -63,25 +66,28 @@ app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({ success: false, message: "Email və şifrə daxil edin" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Email və şifrə daxil edin" });
     }
 
-    
     const admin = await Admin.findOne({ email });
     if (!admin) {
-      return res.status(401).json({ success: false, message: "Email və ya şifrə yanlışdır" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Email və ya şifrə yanlışdır" });
     }
 
     const isPasswordValid = await bcrypt.compare(password, admin.password);
     if (!isPasswordValid) {
-      return res.status(401).json({ success: false, message: "Email və ya şifrə yanlışdır" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Email və ya şifrə yanlışdır" });
     }
 
-    const token = jwt.sign(
-      { id: admin._id, email: admin.email },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const token = jwt.sign({ id: admin._id, email: admin.email }, JWT_SECRET, {
+      expiresIn: "7d",
+    });
 
     res.status(200).json({
       success: true,
@@ -90,12 +96,14 @@ app.post("/api/auth/login", async (req, res) => {
       user: {
         id: admin._id,
         name: admin.name,
-        email: admin.email
-      }
+        email: admin.email,
+      },
     });
   } catch (error) {
     console.error("Login error:", error);
-    res.status(500).json({ success: false, message: "Daxil olma zamanı xəta baş verdi" });
+    res
+      .status(500)
+      .json({ success: false, message: "Daxil olma zamanı xəta baş verdi" });
   }
 });
 
@@ -113,9 +121,11 @@ app.post("/api/auth/check-email", async (req, res) => {
 // ======================= VERIFY TOKEN =======================
 app.get("/api/auth/verify", authenticateToken, async (req, res) => {
   try {
-    const admin = await Admin.findById(req.user.id).select('-password');
+    const admin = await Admin.findById(req.user.id).select("-password");
     if (!admin) {
-      return res.status(404).json({ success: false, message: "İstifadəçi tapılmadı" });
+      return res
+        .status(404)
+        .json({ success: false, message: "İstifadəçi tapılmadı" });
     }
     res.json({ success: true, user: admin });
   } catch (error) {
@@ -124,42 +134,104 @@ app.get("/api/auth/verify", authenticateToken, async (req, res) => {
 });
 
 // ======================= EMAIL CONFIGURATION =======================
-const transporter = nodemailer.createTransport({
-  host: "smtp.resend.com",
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.EMAIL_FROM,
-    pass: process.env.RESEND_API_KEY,
-  },
+const sendEmail = async (to, subject, html) => {
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: `Nummix <${process.env.EMAIL_FROM}>`,
+      to,
+      subject,
+      html,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(err);
+  }
+
+  return response.json();
+};
+
+// ======================= CONTACT SCHEMA =======================
+const contactSchema = new mongoose.Schema({
+  fullName: { type: String, required: true },
+  email: { type: String, required: true },
+  companyName: String,
+  message: { type: String, required: true },
+  read: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now },
 });
 
-// Transporter connection verification
-transporter.verify((error, success) => {
-  if (error) {
-    console.log("Email server connection error:", error);
-  } else {
-    console.log("Email server is ready to take our messages");
+const Contact = mongoose.model("Contact", contactSchema);
+
+// ======================= CONTACT API =======================
+// GET all contacts
+app.get("/contacts", authenticateToken, async (req, res) => {
+  try {
+    const contacts = await Contact.find().sort({ createdAt: -1 });
+    res.json(contacts);
+  } catch (error) {
+    console.error("Get contacts error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Xəta baş verdi",
+    });
   }
 });
 
-// ======================= CONTACT API =======================
-app.post("/api/contact", async (req, res) => {
+// GET single contact
+app.get("/contacts/:id", authenticateToken, async (req, res) => {
+  try {
+    const contact = await Contact.findById(req.params.id);
+    if (!contact) {
+      return res.status(404).json({
+        success: false,
+        message: "Müraciət tapılmadı",
+      });
+    }
+    res.json(contact);
+  } catch (error) {
+    console.error("Get contact error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Xəta baş verdi",
+    });
+  }
+});
+
+// POST new contact (from website)
+app.post("/contact", async (req, res) => {
   try {
     const { fullName, email, companyName, message } = req.body;
 
     // Validation
     if (!fullName || !email || !message) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Zəhmət olmasa bütün vacib sahələri doldurun" 
+      return res.status(400).json({
+        success: false,
+        message: "Zəhmət olmasa bütün vacib sahələri doldurun",
       });
     }
 
+    // Save contact to database
+    await Contact.create({
+      fullName,
+      email,
+      companyName,
+      message,
+      read: false,
+    });
+
+    // Email notification disabled - keeping for future use if needed
+    /* 
     // Admin notification email
     const mailOptions = {
       from: "no-reply@nummix.az",
-      to: "nummixaz@gmail.com", // Admin email
+      to: process.env.EMAIL_TO, // Admin email
       subject: `Nummix - Yeni Müraciət: ${fullName}`,
       html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 5px;">
@@ -193,21 +265,75 @@ app.post("/api/contact", async (req, res) => {
     };
 
     // Send emails in parallel
-    await Promise.all([
-      transporter.sendMail(mailOptions),
-      transporter.sendMail(autoReplyOptions)
-    ]);
+    try {
+      await Promise.all([
+        sendEmail(process.env.EMAIL_TO, mailOptions.subject, mailOptions.html),
+        sendEmail(email, autoReplyOptions.subject, autoReplyOptions.html)
+      ]);
+    } catch (err) {
+      console.error("Email error ignored:", err.message);
+    }
+    */
 
-    res.status(200).json({ 
-      success: true, 
-      message: "Mesajınız uğurla göndərildi" 
+    res.status(200).json({
+      success: true,
+      message: "Mesajınız uğurla göndərildi",
     });
-
   } catch (error) {
-    console.error("Contact form error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Sistem xətası baş verdi. Zəhmət olmasa yenidən cəhd edin." 
+    console.error("Contact form error details:", {
+      message: error.message,
+      stack: error.stack,
+      error: error,
+    });
+    res.status(500).json({
+      success: false,
+      message: "Sistem xətası baş verdi. Zəhmət olmasa yenidən cəhd edin.",
+    });
+  }
+});
+
+// PUT update contact (mark as read/unread or edit)
+app.put("/contacts/:id", authenticateToken, async (req, res) => {
+  try {
+    const contact = await Contact.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+    if (!contact) {
+      return res.status(404).json({
+        success: false,
+        message: "Müraciət tapılmadı",
+      });
+    }
+    res.json(contact);
+  } catch (error) {
+    console.error("Update contact error:", error);
+    res.status(400).json({
+      success: false,
+      message: "Müraciət yenilənə bilmədi",
+    });
+  }
+});
+
+// DELETE contact
+app.delete("/contacts/:id", authenticateToken, async (req, res) => {
+  try {
+    const contact = await Contact.findByIdAndDelete(req.params.id);
+    if (!contact) {
+      return res.status(404).json({
+        success: false,
+        message: "Müraciət tapılmadı",
+      });
+    }
+    res.json({
+      success: true,
+      message: "Müraciət silindi",
+    });
+  } catch (error) {
+    console.error("Delete contact error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Müraciət silinə bilmədi",
     });
   }
 });
@@ -222,7 +348,6 @@ const teamSchema = new mongoose.Schema({
   email: String,
 });
 const Team = mongoose.model("Team", teamSchema);
-
 
 app.get("/team", async (req, res) => {
   try {
@@ -243,7 +368,10 @@ app.post("/team", authenticateToken, async (req, res) => {
 
 app.put("/team/:id", authenticateToken, async (req, res) => {
   try {
-    const team = await Team.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const team = await Team.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
     if (!team) return res.status(404).json({ message: "Tapılmadı" });
     res.json(team);
   } catch (err) {
@@ -262,41 +390,42 @@ app.delete("/team/:id", authenticateToken, async (req, res) => {
 });
 
 // ======================= BLOG =======================
-const blogSchema = new mongoose.Schema({
-   title: String,
-  category: String,
-  excerpt: String,
-  coverImage: String,
-  date: String,
-  readTime: String,
-  author: {
-    name: String,
-    initials: String
+const blogSchema = new mongoose.Schema(
+  {
+    title: String,
+    category: String,
+    excerpt: String,
+    coverImage: String,
+    date: String,
+    readTime: String,
+    author: {
+      name: String,
+      initials: String,
+    },
+
+    question1: String,
+    answer1: String,
+    question2: String,
+    answer2: String,
+    question3: String,
+    answer3: String,
+    question4: String,
+    answer4: String,
+    question5: String,
+    answer5: String,
+    question6: String,
+    answer6: String,
+    question7: String,
+    answer7: String,
+    question8: String,
+    answer8: String,
+    question9: String,
+    answer9: String,
+
+    result: String,
   },
-
-  question1: String,
-  answer1: String,
-  question2: String,
-  answer2: String,
-  question3: String,
-  answer3: String,
-  question4: String,
-  answer4: String,
-  question5: String,
-  answer5: String,
-  question6: String,
-  answer6: String,
-  question7: String,
-  answer7: String,
-  question8: String,
-  answer8: String,
-  question9: String,
-  answer9: String,
-
-
-  result: String
-}, { timestamps: true });
-
+  { timestamps: true }
+);
 
 const Blog = mongoose.model("Blog", blogSchema);
 
@@ -331,7 +460,10 @@ app.post("/blogs", authenticateToken, async (req, res) => {
 
 app.put("/blogs/:id", authenticateToken, async (req, res) => {
   try {
-    const blog = await Blog.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const blog = await Blog.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
     if (!blog) return res.status(404).json({ message: "Tapılmadı" });
     res.json(blog);
   } catch (err) {
@@ -351,10 +483,14 @@ app.delete("/blogs/:id", authenticateToken, async (req, res) => {
 
 // ======================= PASSWORD RESET SCHEMA =======================
 const passwordResetSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'Admin' },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    ref: "Admin",
+  },
   resetCode: { type: String, required: true },
   expiresAt: { type: Date, required: true },
-  used: { type: Boolean, default: false }
+  used: { type: Boolean, default: false },
 });
 
 const PasswordReset = mongoose.model("PasswordReset", passwordResetSchema);
@@ -365,22 +501,24 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ success: false, message: "Zəhmət olmasa email daxil edin" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Zəhmət olmasa email daxil edin" });
     }
 
     const admin = await Admin.findOne({ email });
-    
+
     // Security: Always return success even if email not found to prevent enumeration
     if (!admin) {
-      return res.status(200).json({ 
-        success: true, 
-        message: "Email qeydiyyatlıdırsa, təsdiq kodu göndəriləcək" 
+      return res.status(200).json({
+        success: true,
+        message: "Email qeydiyyatlıdırsa, təsdiq kodu göndəriləcək",
       });
     }
 
     // Generate 6 digit code
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-    
+
     // Clear old codes
     await PasswordReset.deleteMany({ userId: admin._id, used: false });
 
@@ -389,7 +527,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
       userId: admin._id,
       resetCode: resetCode,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
-      used: false
+      used: false,
     });
 
     const mailOptions = {
@@ -413,18 +551,21 @@ app.post("/api/auth/forgot-password", async (req, res) => {
       `,
     };
 
-    await transporter.sendMail(mailOptions);
+    await sendEmail(
+      process.env.EMAIL_TO,
+      mailOptions.subject,
+      mailOptions.html
+    );
 
-    res.status(200).json({ 
-      success: true, 
-      message: "Təsdiq kodu email ünvanınıza göndərildi" 
+    res.status(200).json({
+      success: true,
+      message: "Təsdiq kodu email ünvanınıza göndərildi",
     });
-
   } catch (error) {
     console.error("Forgot password error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Xəta baş verdi. Zəhmət olmasa bir az sonra yenidən cəhd edin" 
+    res.status(500).json({
+      success: false,
+      message: "Xəta baş verdi. Zəhmət olmasa bir az sonra yenidən cəhd edin",
     });
   }
 });
@@ -435,34 +576,37 @@ app.post("/api/auth/verify-reset-code", async (req, res) => {
     const { email, code } = req.body;
 
     if (!email || !code) {
-      return res.status(400).json({ success: false, message: "Email və kod daxil edin" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Email və kod daxil edin" });
     }
 
     const admin = await Admin.findOne({ email });
     if (!admin) {
-      return res.status(404).json({ success: false, message: "İstifadəçi tapılmadı" });
+      return res
+        .status(404)
+        .json({ success: false, message: "İstifadəçi tapılmadı" });
     }
 
     const resetRequest = await PasswordReset.findOne({
       userId: admin._id,
       resetCode: code,
       used: false,
-      expiresAt: { $gt: new Date() }
+      expiresAt: { $gt: new Date() },
     });
 
     if (!resetRequest) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Kod yanlışdır və ya müddəti bitib" 
+      return res.status(400).json({
+        success: false,
+        message: "Kod yanlışdır və ya müddəti bitib",
       });
     }
 
-    res.status(200).json({ 
-      success: true, 
+    res.status(200).json({
+      success: true,
       message: "Kod təsdiqləndi",
-      resetId: resetRequest._id
+      resetId: resetRequest._id,
     });
-
   } catch (error) {
     console.error("Verify code error:", error);
     res.status(500).json({ success: false, message: "Xəta baş verdi" });
@@ -475,23 +619,25 @@ app.post("/api/auth/reset-password", async (req, res) => {
     const { email, code, newPassword } = req.body;
 
     if (!email || !code || !newPassword) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Bütün sahələri doldurun" 
+      return res.status(400).json({
+        success: false,
+        message: "Bütün sahələri doldurun",
       });
     }
 
     // Password validation - Minimum 6 characters
     if (newPassword.length < 6) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Şifrə ən azı 6 simvol olmalıdır" 
+      return res.status(400).json({
+        success: false,
+        message: "Şifrə ən azı 6 simvol olmalıdır",
       });
     }
 
     const admin = await Admin.findOne({ email });
     if (!admin) {
-      return res.status(404).json({ success: false, message: "İstifadəçi tapılmadı" });
+      return res
+        .status(404)
+        .json({ success: false, message: "İstifadəçi tapılmadı" });
     }
 
     // Verify code validity
@@ -499,13 +645,13 @@ app.post("/api/auth/reset-password", async (req, res) => {
       userId: admin._id,
       resetCode: code,
       used: false,
-      expiresAt: { $gt: new Date() }
+      expiresAt: { $gt: new Date() },
     });
 
     if (!resetRequest) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Kod yanlışdır və ya müddəti bitib" 
+      return res.status(400).json({
+        success: false,
+        message: "Kod yanlışdır və ya müddəti bitib",
       });
     }
 
@@ -536,23 +682,20 @@ app.post("/api/auth/reset-password", async (req, res) => {
       `,
     };
 
-    await transporter.sendMail(mailOptions);
+    await sendEmail(mailOptions.to, mailOptions.subject, mailOptions.html);
 
-    res.status(200).json({ 
-      success: true, 
-      message: "Şifrəniz uğurla yeniləndi" 
+    res.status(200).json({
+      success: true,
+      message: "Şifrəniz uğurla yeniləndi",
     });
-
   } catch (error) {
     console.error("Reset password error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Xəta baş verdi. Zəhmət olmasa yenidən cəhd edin" 
+    res.status(500).json({
+      success: false,
+      message: "Xəta baş verdi. Zəhmət olmasa yenidən cəhd edin",
     });
   }
 });
-
-
 
 app.get("/api/admins", async (req, res) => {
   try {
@@ -574,15 +717,11 @@ app.delete("/api/admins/:id", async (req, res) => {
 
     res.json({ message: "Admin uğurla silindi", deletedAdmin });
   } catch (error) {
-    res.status(500).json({ message: "Silinmə zamanı xəta baş verdi", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Silinmə zamanı xəta baş verdi", error: error.message });
   }
 });
 
-
 const PORT = process.env.PORT;
 app.listen(PORT, () => console.log(`Server ${PORT} portunda işləyir`));
-
-
-
-
-
