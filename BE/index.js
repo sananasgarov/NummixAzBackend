@@ -424,7 +424,7 @@ const blogSchema = new mongoose.Schema(
 
     result: String,
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 const Blog = mongoose.model("Blog", blogSchema);
@@ -554,7 +554,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     await sendEmail(
       process.env.EMAIL_TO,
       mailOptions.subject,
-      mailOptions.html
+      mailOptions.html,
     );
 
     res.status(200).json({
@@ -725,3 +725,30 @@ app.delete("/api/admins/:id", async (req, res) => {
 
 const PORT = process.env.PORT;
 app.listen(PORT, () => console.log(`Server ${PORT} portunda işləyir`));
+
+// ======================= MENTORS =======================
+const mentorSchema = new mongoose.Schema({
+  image: String,
+  name: String,
+  position: String,
+  description: String,
+  linkedin: String,
+  email: String,
+});
+const Mentor = mongoose.model("Mentor", mentorSchema);
+app.get("/mentor", async (req, res) => {
+  try {
+    res.json(await Mentor.find());
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post("/mentor", authenticateToken, async (req, res) => {
+  try {
+    const mentor = await Mentor.create(req.body);
+    res.status(201).json(mentor);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
