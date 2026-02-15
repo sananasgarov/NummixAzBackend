@@ -53,7 +53,7 @@ const authenticateToken = (req, res, next) => {
 };
 
 // ======================= REGISTER (DEACTIVATED) =======================
-app.post("/api/auth/register", (req, res) => {
+app.post("/api/auth/register", async (req, res) => {
   return res.status(403).json({
     success: false,
     message: "Yeni admin qeydiyyatı bağlıdır. Əlavə admin yaradıla bilməz.",
@@ -64,7 +64,7 @@ app.post("/api/auth/register", (req, res) => {
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-
+    console.log("in login");
     if (!email || !password) {
       return res
         .status(400)
@@ -340,6 +340,7 @@ app.delete("/contacts/:id", authenticateToken, async (req, res) => {
 
 // ======================= TEAM =======================
 const teamSchema = new mongoose.Schema({
+  queueNumber: Number,
   image: String,
   name: String,
   position: String,
@@ -347,11 +348,22 @@ const teamSchema = new mongoose.Schema({
   linkedin: String,
   email: String,
 });
+teamSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
+
+  const lastTeam = await mongoose.model("Team").findOne().sort("-queueNumber");
+
+  this.queueNumber = lastTeam ? lastTeam.queueNumber + 1 : 1;
+
+  next();
+});
+
 const Team = mongoose.model("Team", teamSchema);
 
 app.get("/team", async (req, res) => {
   try {
-    res.json(await Team.find());
+    const teams = await Team.find().sort({ queueNumber: 1 });
+    res.json(teams);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -365,7 +377,24 @@ app.post("/team", authenticateToken, async (req, res) => {
     res.status(400).json({ message: err.message });
   }
 });
+app.put("/team/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
 
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await Team.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 app.put("/team/:id", authenticateToken, async (req, res) => {
   try {
     const team = await Team.findByIdAndUpdate(req.params.id, req.body, {
@@ -728,6 +757,7 @@ app.listen(PORT, () => console.log(`Server ${PORT} portunda işləyir`));
 
 // ======================= MENTORS =======================
 const mentorSchema = new mongoose.Schema({
+  queueNumber: Number,
   image: String,
   name: String,
   position: String,
@@ -735,20 +765,399 @@ const mentorSchema = new mongoose.Schema({
   linkedin: String,
   email: String,
 });
+
+mentorSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
+
+  const lastMentor = await mongoose
+    .model("Mentor")
+    .findOne()
+    .sort("-queueNumber");
+
+  this.queueNumber = lastMentor ? lastMentor.queueNumber + 1 : 1;
+
+  next();
+});
 const Mentor = mongoose.model("Mentor", mentorSchema);
 app.get("/mentor", async (req, res) => {
   try {
-    res.json(await Mentor.find());
+    const mentors = await Mentor.find().sort({ queueNumber: 1 });
+    res.json(mentors);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
+app.put("/mentor/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await Mentor.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.put("/mentor/:id", authenticateToken, async (req, res) => {
+  try {
+    const mentor = await Mentor.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+    if (!mentor) return res.status(404).json({ message: "Tapılmadı" });
+    res.json(mentor);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
 app.post("/mentor", authenticateToken, async (req, res) => {
   try {
     const mentor = await Mentor.create(req.body);
     res.status(201).json(mentor);
   } catch (err) {
     res.status(400).json({ message: err.message });
+  }
+});
+
+app.delete("/mentor/:id", authenticateToken, async (req, res) => {
+  try {
+    const mentor = await Mentor.findByIdAndDelete(req.params.id);
+    if (!mentor) return res.status(404).json({ message: "Tapılmadı" });
+    res.json({ message: "Silindi" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+///===========================Partners=============================
+const partnersSchema = new mongoose.Schema({
+  queueNumber: Number,
+  name: String,
+  description: String,
+  image: String,
+});
+
+partnersSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
+
+  const lastPartner = await mongoose
+    .model("Partner")
+    .findOne()
+    .sort("-queueNumber");
+
+  this.queueNumber = lastPartner ? lastPartner.queueNumber + 1 : 1;
+
+  next();
+});
+const Partner = mongoose.model("Partner", partnersSchema);
+
+app.get("/partner", async (req, res) => {
+  try {
+    const partners = await Partner.find().sort({ queueNumber: 1 });
+    res.json(partners);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.put("/partner/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await Partner.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.put("/partner/:id", authenticateToken, async (req, res) => {
+  try {
+    const partner = await Partner.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+    if (!partner) return res.status(404).json({ message: "Tapılmadı" });
+    res.json(partner);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.post("/partner", authenticateToken, async (req, res) => {
+  try {
+    const partner = await Partner.create(req.body);
+    res.status(201).json(partner);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.delete("/partner/:id", authenticateToken, async (req, res) => {
+  try {
+    const partner = await Partner.findByIdAndDelete(req.params.id);
+    if (!partner) return res.status(404).json({ message: "Tapılmadı" });
+    res.json({ message: "Silindi" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+///===========================Customer=============================
+const customerSchema = new mongoose.Schema({
+  queueNumber: Number,
+  name: String,
+  description: String,
+  image: String,
+});
+
+customerSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
+
+  const lastDetail = await mongoose
+    .model("Customer")
+    .findOne()
+    .sort("-queueNumber");
+
+  this.queueNumber = lastDetail ? lastDetail.queueNumber + 1 : 1;
+
+  next();
+});
+const Customer = mongoose.model("Customer", customerSchema);
+
+app.post("/customer", authenticateToken, async (req, res) => {
+  try {
+    const detail = await Customer.create(req.body);
+    res.status(201).json(detail);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.get("/customer", async (req, res) => {
+  try {
+    const customer = await Customer.find().sort({ queueNumber: 1 });
+    res.json(customer);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.put("/customer/:id", authenticateToken, async (req, res) => {
+  try {
+    const customer = await Customer.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+    if (!customer) return res.status(404).json({ message: "Tapılmadı" });
+    res.json(customer);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+app.put("/customer/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await Customer.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.delete("/customer/:id", authenticateToken, async (req, res) => {
+  try {
+    const customer = await Customer.findByIdAndDelete(req.params.id);
+    if (!customer) return res.status(404).json({ message: "Tapılmadı" });
+    res.json({ message: "Silindi" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+///===========================Product=============================
+const productSchema = new mongoose.Schema({
+  queueNumber: Number,
+  name: String,
+  image: String,
+});
+
+productSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
+
+  const lastDetail = await mongoose
+    .model("ContactDetail")
+    .findOne()
+    .sort("-queueNumber");
+
+  this.queueNumber = lastDetail ? lastDetail.queueNumber + 1 : 1;
+
+  next();
+});
+const Product = mongoose.model("Product", productSchema);
+
+app.get("/product", async (req, res) => {
+  try {
+    const product = (await Product.find()).toSorted({ queueNumber: 1 });
+    res.json(product);
+  } catch (error) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post("/product", authenticateToken, async (req, res) => {
+  try {
+    const product = await Product.create(req.body);
+    res.status(201).json(product);
+  } catch (error) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.put("/product/:id", authenticateToken, async (req, res) => {
+  try {
+    const product = await Product.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+    if (!product) return res.status(404).json({ message: "Tapılmadı" });
+    res.json(product);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+app.put("/product/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await Product.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.delete("/product/:id", authenticateToken, async (req, res) => {
+  try {
+    const product = await Product.findByIdAndDelete(req.params.id);
+    if (!product) return res.status(404).json({ message: "Tapılmadı" });
+    res.json({ message: "Silindi" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+///===========================ContactDetail=============================
+const contactDetailSchema = new mongoose.Schema({
+  queueNumber: Number,
+  name: String,
+  description: String,
+  icon: String,
+});
+contactDetailSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
+
+  const lastDetail = await mongoose
+    .model("ContactDetail")
+    .findOne()
+    .sort("-queueNumber");
+
+  this.queueNumber = lastDetail ? lastDetail.queueNumber + 1 : 1;
+
+  next();
+});
+const ContactDetail = mongoose.model("ContactDetail", contactDetailSchema);
+
+app.post("/contactDetail", authenticateToken, async (req, res) => {
+  try {
+    const detail = await ContactDetail.create(req.body);
+    res.status(201).json(detail);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.get("/contactDetail", async (req, res) => {
+  try {
+    const contactDetail = await ContactDetail.find().sort({ queueNumber: 1 });
+    res.json(contactDetail);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.put("/contactDetail/:id", authenticateToken, async (req, res) => {
+  try {
+    const contactDetail = await ContactDetail.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      {
+        new: true,
+        runValidators: true,
+      },
+    );
+    if (!contactDetail) return res.status(404).json({ message: "Tapılmadı" });
+    res.json(contactDetail);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+app.put("/contactDetail/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await ContactDetail.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.delete("/contactDetail/:id", authenticateToken, async (req, res) => {
+  try {
+    const contactDetail = await ContactDetail.findByIdAndDelete(req.params.id);
+    if (!contactDetail) return res.status(404).json({ message: "Tapılmadı" });
+    res.json({ message: "Silindi" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
