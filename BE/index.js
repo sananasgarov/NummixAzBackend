@@ -421,6 +421,7 @@ app.delete("/team/:id", authenticateToken, async (req, res) => {
 // ======================= BLOG =======================
 const blogSchema = new mongoose.Schema(
   {
+    queueNumber: Number,
     title: String,
     category: String,
     excerpt: String,
@@ -455,12 +456,21 @@ const blogSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+blogSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
 
+  const lastBlog = await mongoose.model("Blog").findOne().sort("-queueNumber");
+
+  this.queueNumber = lastBlog ? lastBlog.queueNumber + 1 : 1;
+
+  next();
+});
 const Blog = mongoose.model("Blog", blogSchema);
 
 app.get("/blogs", async (req, res) => {
   try {
-    res.json(await Blog.find().sort({ date: -1 }));
+    const blogs = await Blog.find().sort({ queueNumber: 1 });
+    res.json(blogs);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -484,6 +494,25 @@ app.post("/blogs", authenticateToken, async (req, res) => {
     res.status(201).json(blog);
   } catch (err) {
     res.status(400).json({ message: err.message });
+  }
+});
+
+app.put("/blogs/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await Blog.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
@@ -1011,7 +1040,7 @@ productSchema.pre("save", async function (next) {
   if (this.queueNumber != null) return next();
 
   const lastDetail = await mongoose
-    .model("ContactDetail")
+    .model("Product")
     .findOne()
     .sort("-queueNumber");
 
@@ -1023,7 +1052,7 @@ const Product = mongoose.model("Product", productSchema);
 
 app.get("/product", async (req, res) => {
   try {
-    const product = (await Product.find()).toSorted({ queueNumber: 1 });
+    const product = await Product.find().sort({ queueNumber: 1 });
     res.json(product);
   } catch (error) {
     res.status(500).json({ message: err.message });
@@ -1083,8 +1112,15 @@ app.delete("/product/:id", authenticateToken, async (req, res) => {
 ///===========================ContactDetail=============================
 const contactDetailSchema = new mongoose.Schema({
   queueNumber: Number,
-  name: String,
-  description: String,
+
+  nameAz: String,
+  nameRu: String,
+  nameEn: String,
+
+  descriptionAz: String,
+  descriptionRu: String,
+  descriptionEn: String,
+
   icon: String,
 });
 contactDetailSchema.pre("save", async function (next) {
@@ -1156,6 +1192,694 @@ app.delete("/contactDetail/:id", authenticateToken, async (req, res) => {
   try {
     const contactDetail = await ContactDetail.findByIdAndDelete(req.params.id);
     if (!contactDetail) return res.status(404).json({ message: "Tapılmadı" });
+    res.json({ message: "Silindi" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+//==================== Page======================
+
+const pageTranslationSchema = new mongoose.Schema(
+  {
+    header: {
+      type: String,
+      required: true,
+      trim: true,
+      minlength: 1,
+      maxlength: 500,
+    },
+    paragraph: {
+      type: String,
+      required: true,
+      trim: true,
+      minlength: 1,
+      maxlength: 5000,
+    },
+  },
+  { _id: false },
+);
+
+const pageSchema = new mongoose.Schema(
+  {
+    pageName: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+      match: /^[a-z0-9-]+$/,
+    },
+    translations: {
+      type: Map,
+      of: pageTranslationSchema,
+      default: {},
+    },
+  },
+  { timestamps: true },
+);
+
+pageSchema.index({ pageName: 1 });
+
+const Page = mongoose.model("Page", pageSchema);
+
+// app.post("/page", async (req, res) => {
+//   try {
+//     const { pageName } = req.body;
+
+//     if (!pageName)
+//       return res.status(400).json({ message: "Page name is required" });
+
+//     const page = await Page.create({ pageName });
+//     res.status(201).json(page);
+//   } catch (err) {
+//     res.status(400).json({ message: err.message });
+//   }
+// });
+
+app.get("/page/:pageName", async (req, res) => {
+  try {
+    const { pageName } = req.params;
+    const { locale = "en" } = req.query;
+
+    const page = await Page.findOne({ pageName });
+    if (!page) return res.status(404).json({ message: "Page not found" });
+
+    const translation =
+      page.translations.get(locale) || page.translations.get("en");
+
+    if (!translation)
+      return res.status(404).json({ message: "Translation not found" });
+
+    res.json({
+      pageName: page.pageName,
+      locale,
+      header: translation.header,
+      paragraph: translation.paragraph,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.put("/page/:pageName/translation", async (req, res) => {
+  try {
+    const { pageName } = req.params;
+    const { locale, header, paragraph } = req.body;
+
+    if (!locale || !header || !paragraph)
+      return res.status(400).json({ message: "Missing fields" });
+
+    const page = await Page.findOneAndUpdate(
+      { pageName },
+      { $set: { [`translations.${locale}`]: { header, paragraph } } },
+      { new: true, runValidators: true },
+    );
+
+    if (!page) return res.status(404).json({ message: "Page not found" });
+
+    res.json({ success: true, page });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.delete(
+  "/page/:pageName/translation/:locale",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { pageName, locale } = req.params;
+
+      const page = await Page.findOne({ pageName });
+      if (!page) return res.status(404).json({ message: "Page not found" });
+
+      page.translations.delete(locale);
+      await page.save();
+
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  },
+);
+
+app.delete("/page/:pageName", authenticateToken, async (req, res) => {
+  try {
+    const { pageName } = req.params;
+
+    const page = await Page.findOneAndDelete({ pageName });
+    if (!page) return res.status(404).json({ message: "Page not found" });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+//======================== Feature ==========
+const featureSchema = new mongoose.Schema({
+  queueNumber: Number,
+
+  titleAz: String,
+  titleRu: String,
+  titleEn: String,
+
+  descriptionAz: String,
+  descriptionRu: String,
+  descriptionEn: String,
+
+  image: String,
+});
+featureSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
+
+  const lastFeature = await mongoose
+    .model("Feature")
+    .findOne()
+    .sort("-queueNumber");
+
+  this.queueNumber = lastFeature ? lastFeature.queueNumber + 1 : 1;
+
+  next();
+});
+
+const Feature = mongoose.model("Feature", featureSchema);
+app.get("/features", async (req, res) => {
+  try {
+    const features = await Feature.find().sort({ queueNumber: 1 });
+    res.json(features);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.post("/features", authenticateToken, async (req, res) => {
+  try {
+    const feature = await Feature.create(req.body);
+    res.status(201).json(feature);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.put("/features/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await Feature.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.put("/features/:id", authenticateToken, async (req, res) => {
+  try {
+    const feature = await Feature.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!feature) {
+      return res.status(404).json({ message: "Tapılmadı" });
+    }
+
+    res.json(feature);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.delete("/features/:id", authenticateToken, async (req, res) => {
+  try {
+    const feature = await Feature.findByIdAndDelete(req.params.id);
+
+    if (!feature) {
+      return res.status(404).json({ message: "Tapılmadı" });
+    }
+
+    res.json({ message: "Silindi" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+//==================== Culture ======================
+
+const cultureSchema = new mongoose.Schema({
+  queueNumber: Number,
+
+  titleAz: String,
+  titleRu: String,
+  titleEn: String,
+
+  descriptionAz: String,
+  descriptionRu: String,
+  descriptionEn: String,
+
+  image: String,
+});
+cultureSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
+
+  const lastCulture = await mongoose
+    .model("Culture")
+    .findOne()
+    .sort("-queueNumber");
+
+  this.queueNumber = lastCulture ? lastCulture.queueNumber + 1 : 1;
+
+  next();
+});
+
+const Culture = mongoose.model("Culture", cultureSchema);
+app.get("/cultures", async (req, res) => {
+  try {
+    const cultures = await Culture.find().sort({ queueNumber: 1 });
+    res.json(cultures);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.post("/cultures", authenticateToken, async (req, res) => {
+  try {
+    const cultures = await Culture.create(req.body);
+    res.status(201).json(cultures);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+app.put("/cultures/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await Culture.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.put("/cultures/:id", authenticateToken, async (req, res) => {
+  try {
+    const culture = await Culture.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!culture) {
+      return res.status(404).json({ message: "Tapılmadı" });
+    }
+
+    res.json(culture);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.delete("/cultures/:id", authenticateToken, async (req, res) => {
+  try {
+    const culture = await Culture.findByIdAndDelete(req.params.id);
+
+    if (!culture) {
+      return res.status(404).json({ message: "Tapılmadı" });
+    }
+
+    res.json({ message: "Silindi" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+//==================== AboutUs ======================
+
+const aboutUsSchema = new mongoose.Schema({
+  queueNumber: Number,
+
+  storyAz: String,
+  storyRu: String,
+  storyEn: String,
+
+  noteAz: String,
+  noteRu: String,
+  noteEn: String,
+
+  image: String,
+});
+aboutUsSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
+
+  const lastAbout = await mongoose
+    .model("AboutUs")
+    .findOne()
+    .sort("-queueNumber");
+
+  this.queueNumber = lastAbout ? lastAbout.queueNumber + 1 : 1;
+
+  next();
+});
+
+const AboutUs = mongoose.model("AboutUs", aboutUsSchema);
+app.get("/aboutUs", async (req, res) => {
+  try {
+    const about = await AboutUs.find().sort({ queueNumber: 1 });
+    res.json(about);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.post("/aboutUs", authenticateToken, async (req, res) => {
+  try {
+    const about = await AboutUs.create(req.body);
+    res.status(201).json(about);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+app.put("/aboutUs/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await AboutUs.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.put("/aboutUs/:id", authenticateToken, async (req, res) => {
+  try {
+    const about = await AboutUs.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!about) {
+      return res.status(404).json({ message: "Tapılmadı" });
+    }
+
+    res.json(about);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.delete("/aboutUs/:id", authenticateToken, async (req, res) => {
+  try {
+    const about = await AboutUs.findByIdAndDelete(req.params.id);
+
+    if (!about) {
+      return res.status(404).json({ message: "Tapılmadı" });
+    }
+
+    res.json({ message: "Silindi" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+//==================== Stat ======================
+
+const statSchema = new mongoose.Schema({
+  queueNumber: Number,
+
+  count: Number,
+  titleAz: String,
+  titleRu: String,
+  titleEn: String,
+
+  image: String,
+});
+statSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
+
+  const lastStat = await mongoose.model("Stat").findOne().sort("-queueNumber");
+
+  this.queueNumber = lastStat ? lastStat.queueNumber + 1 : 1;
+
+  next();
+});
+
+const Stat = mongoose.model("Stat", statSchema);
+app.get("/stats", async (req, res) => {
+  try {
+    const stat = await Stat.find().sort({ queueNumber: 1 });
+    res.json(stat);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.post("/stats", authenticateToken, async (req, res) => {
+  try {
+    const stat = await Stat.create(req.body);
+    res.status(201).json(stat);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+app.put("/stats/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await Stat.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.put("/stats/:id", authenticateToken, async (req, res) => {
+  try {
+    const stat = await Stat.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!stat) {
+      return res.status(404).json({ message: "Tapılmadı" });
+    }
+
+    res.json(stat);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.delete("/stats/:id", authenticateToken, async (req, res) => {
+  try {
+    const stat = await Stat.findByIdAndDelete(req.params.id);
+
+    if (!stat) {
+      return res.status(404).json({ message: "Tapılmadı" });
+    }
+
+    res.json({ message: "Silindi" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+//==================== Value ======================
+
+const valueSchema = new mongoose.Schema({
+  queueNumber: Number,
+
+  titleAz: String,
+  titleRu: String,
+  titleEn: String,
+
+  descriptionAz: String,
+  descriptionRu: String,
+  descriptionEn: String,
+  initial: String,
+});
+valueSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
+
+  const lastValue = await mongoose
+    .model("Value")
+    .findOne()
+    .sort("-queueNumber");
+
+  this.queueNumber = lastValue ? lastValue.queueNumber + 1 : 1;
+
+  next();
+});
+const Value = mongoose.model("Value", valueSchema);
+app.get("/values", async (req, res) => {
+  try {
+    const value = await Value.find().sort({ queueNumber: 1 });
+    res.json(value);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.post("/values", authenticateToken, async (req, res) => {
+  try {
+    const value = await Value.create(req.body);
+    res.status(201).json(value);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+app.put("/values/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await Value.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.put("/values/:id", authenticateToken, async (req, res) => {
+  try {
+    const value = await Value.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!value) {
+      return res.status(404).json({ message: "Tapılmadı" });
+    }
+
+    res.json(value);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.delete("/values/:id", authenticateToken, async (req, res) => {
+  try {
+    const value = await Value.findByIdAndDelete(req.params.id);
+
+    if (!value) {
+      return res.status(404).json({ message: "Tapılmadı" });
+    }
+
+    res.json({ message: "Silindi" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+//==================== Faq ======================
+
+const faqSchema = new mongoose.Schema({
+  queueNumber: Number,
+
+  questionAz: String,
+  questionRu: String,
+  questionEn: String,
+
+  answerAz: String,
+  answerRu: String,
+  answerEn: String,
+});
+faqSchema.pre("save", async function (next) {
+  if (this.queueNumber != null) return next();
+
+  const lastFaq = await mongoose.model("Faq").findOne().sort("-queueNumber");
+
+  this.queueNumber = lastFaq ? lastFaq.queueNumber + 1 : 1;
+
+  next();
+});
+const Faq = mongoose.model("Faq", faqSchema);
+app.get("/faqs", async (req, res) => {
+  try {
+    const faq = await Faq.find().sort({ queueNumber: 1 });
+    res.json(faq);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.post("/faqs", authenticateToken, async (req, res) => {
+  try {
+    const faq = await Faq.create(req.body);
+    res.status(201).json(faq);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+app.put("/faqs/reorder-queue", authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    const bulkOps = items.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id },
+        update: { $set: { queueNumber: item.queueNumber } },
+      },
+    }));
+
+    await Faq.bulkWrite(bulkOps);
+
+    res.json({ message: "Order updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.put("/faqs/:id", authenticateToken, async (req, res) => {
+  try {
+    const faq = await Faq.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!faq) {
+      return res.status(404).json({ message: "Tapılmadı" });
+    }
+
+    res.json(faq);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.delete("/faqs/:id", authenticateToken, async (req, res) => {
+  try {
+    const faq = await Faq.findByIdAndDelete(req.params.id);
+
+    if (!faq) {
+      return res.status(404).json({ message: "Tapılmadı" });
+    }
+
     res.json({ message: "Silindi" });
   } catch (err) {
     res.status(500).json({ message: err.message });
