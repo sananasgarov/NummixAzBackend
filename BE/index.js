@@ -1239,7 +1239,7 @@ const pageSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-pageSchema.index({ pageName: 1 });
+// pageSchema.index({ pageName: 1 });
 
 const Page = mongoose.model("Page", pageSchema);
 
